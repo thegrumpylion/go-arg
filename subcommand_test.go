@@ -1,6 +1,10 @@
 package arg
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -351,5 +355,149 @@ func TestSubcommandsWithMultiplePositionals(t *testing.T) {
 		assert.NotNil(t, args.Get)
 		assert.Equal(t, []string{"item1", "item2"}, args.Get.Items)
 		assert.Equal(t, 5, args.Limit)
+	}
+}
+
+type optsA struct {
+	Foo string
+	Bar int
+}
+
+var helpA = `Usage: subparser list [--type TYPE] [--foo FOO] [--bar BAR]
+
+Options:
+  --type TYPE [default: a]
+  --foo FOO
+  --bar BAR
+  --help, -h             display this help and exit
+`
+
+type optsB struct {
+	Baz bool
+	Moo string
+}
+
+var helpB = `Usage: subparser list [--type TYPE] [--baz] [--moo MOO]
+
+Options:
+  --type TYPE [default: b]
+  --baz
+  --moo MOO
+  --help, -h             display this help and exit
+`
+
+type subCmdA struct {
+	Type    string
+	Options interface{} `arg:"-"`
+}
+
+func (c *subCmdA) SubcommandParse(p *Parser, args []string) error {
+
+	var t string
+	var help bool
+
+	// check for type and help params
+	for i, a := range args {
+		if a == "--help" || a == "-h" {
+			help = true
+		}
+		if strings.HasPrefix(a, "--type=") {
+			arr := strings.Split(a, "=")
+			t = arr[1]
+		}
+		if a == "--type" && i != len(args)-1 {
+			t = args[i+1]
+		}
+	}
+
+	// no type provided, checkfor help request
+	if t == "" {
+		if help {
+			return ErrHelp
+		}
+		return errors.New("--type required")
+	}
+
+	var opts interface{}
+
+	// parse generic
+	switch t {
+	case "a":
+		opts = &optsA{}
+	case "b":
+		opts = &optsB{}
+	default:
+		return fmt.Errorf("unknown type %s", t)
+	}
+
+	if err := p.AddDestinations(opts); err != nil {
+		return err
+	}
+	if err := p.Parse(args); err != nil {
+		return err
+	}
+	c.Options = opts
+
+	return nil
+}
+
+type subCmdB struct {
+	Name string
+}
+
+var buff *bytes.Buffer
+
+func TestCustomSubCommandParsing(t *testing.T) {
+	type cmd struct {
+		List *subCmdA `arg:"subcommand"`
+		Get  *subCmdB `arg:"subcommand"`
+	}
+
+	{
+		var args cmd
+		err := parse("list --type a --foo FOO --bar 42", &args)
+		require.NoError(t, err)
+		assert.Equal(t, "a", args.List.Type)
+		opts, ok := args.List.Options.(*optsA)
+		assert.True(t, ok)
+		assert.Equal(t, "FOO", opts.Foo)
+		assert.Equal(t, 42, opts.Bar)
+	}
+
+	{
+		var args cmd
+		err := parse("list --type b --baz --moo cow_says", &args)
+		require.NoError(t, err)
+		assert.Equal(t, "b", args.List.Type)
+		opts, ok := args.List.Options.(*optsB)
+		assert.True(t, ok)
+		assert.True(t, opts.Baz)
+		assert.Equal(t, "cow_says", opts.Moo)
+	}
+
+	{
+		var args cmd
+		buff = &bytes.Buffer{}
+		p, err := pparsename("subparser", "list --type a -h", &args)
+		require.Equal(t, err, ErrHelp)
+		p.WriteHelp(buff)
+		assert.Equal(t, helpA, buff.String())
+	}
+
+	{
+		var args cmd
+		buff = &bytes.Buffer{}
+		p, err := pparsename("subparser", "list --type b -h", &args)
+		require.Equal(t, err, ErrHelp)
+		p.WriteHelp(buff)
+		assert.Equal(t, helpB, buff.String())
+	}
+
+	{
+		var args cmd
+		buff = &bytes.Buffer{}
+		err := parse("get --name unknown", &args)
+		require.NoError(t, err)
+		assert.Equal(t, "unknown", args.Get.Name)
 	}
 }
