@@ -460,6 +460,16 @@ func (p *Parser) process(args []string) error {
 			v := p.val(subcmd.dest)
 			v.Set(reflect.New(v.Type().Elem())) // we already checked that all subcommands are struct pointers
 
+			// check if subcommand struct implements TextUnmarshaler interface
+			if scalar.CanParse(reflect.TypeOf(v.Interface())) {
+				err := scalar.ParseValue(v, strings.Join(args[i:], " "))
+				if err != nil {
+					return fmt.Errorf("error processing %s: %v", arg, err)
+				}
+				// exit early since the custom implementation is responsible for parsing the rest even help flags
+				return nil
+			}
+
 			// add the new options to the set of allowed options
 			specs = append(specs, subcmd.specs...)
 
