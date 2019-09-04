@@ -465,14 +465,13 @@ func (p *Parser) process(args []string) error {
 			v := p.val(subcmd.dest)
 			v.Set(reflect.New(v.Type().Elem())) // we already checked that all subcommands are struct pointers
 
+			// update current and last command to have help for the correct command on failure
+			curCmd = subcmd
+			p.lastCmd = curCmd
+
 			// check if subcommand struct implements TextUnmarshaler interface
 			if scalar.CanParse(reflect.TypeOf(v.Interface())) {
-				err := scalar.ParseValue(v, strings.Join(args[i:], " "))
-				if err != nil {
-					return fmt.Errorf("error processing %s: %v", arg, err)
-				}
-				// exit early since the custom implementation is responsible for parsing the rest even help flags
-				return nil
+				return scalar.ParseValue(v, strings.Join(args[i:], " "))
 			}
 
 			// add the new options to the set of allowed options
@@ -483,9 +482,6 @@ func (p *Parser) process(args []string) error {
 			if err != nil {
 				return err
 			}
-
-			curCmd = subcmd
-			p.lastCmd = curCmd
 			continue
 		}
 
