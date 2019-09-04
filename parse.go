@@ -115,7 +115,12 @@ func flags() []string {
 
 // Config represents configuration options for an argument parser
 type Config struct {
-	Program string // Program is the name of the program used in the help text
+	// Program is the name of the program used in the help text
+	Program string
+	// Don't fail when there are more possitional args than declared
+	IgnoreExtraPositionalArgs bool
+	// Don't fail when there are unknown args
+	IgnoreUnknownArgs bool
 }
 
 // Parser represents a set of command line options with destination values
@@ -504,6 +509,9 @@ func (p *Parser) process(args []string) error {
 		// we expand subcommands so it is better not to use a map)
 		spec := findOption(specs, opt)
 		if spec == nil {
+			if p.config.IgnoreUnknownArgs {
+				continue
+			}
 			return fmt.Errorf("unknown argument %s", arg)
 		}
 		wasPresent[spec] = true
@@ -576,7 +584,7 @@ func (p *Parser) process(args []string) error {
 			positionals = positionals[1:]
 		}
 	}
-	if len(positionals) > 0 {
+	if len(positionals) > 0 && !p.config.IgnoreExtraPositionalArgs {
 		return fmt.Errorf("too many positional arguments at '%s'", positionals[0])
 	}
 
