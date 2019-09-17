@@ -1,6 +1,7 @@
 package arg
 
 import (
+	"context"
 	"encoding/csv"
 	"errors"
 	"fmt"
@@ -127,7 +128,8 @@ type Parser struct {
 	description string
 
 	// the following fields change curing processing of command line arguments
-	lastCmd *command
+	lastCmd  *command
+	lastTree []interface{}
 }
 
 // Versioned is the interface that the destination struct should implement to
@@ -250,8 +252,16 @@ func cmdFromStruct(name string, dest path, t reflect.Type) (*command, error) {
 			spec.help = help
 		}
 
+		var isSubcommand bool
+		var cmdname string
+
+		// check for subcommand by interface mplementation first
+		if isRunner(field.Type) {
+			isSubcommand = true
+			cmdname = strings.ToLower(field.Name)
+		}
+
 		// Look at the tag
-		var isSubcommand bool // tracks whether this field is a subcommand
 		if tag != "" {
 			for _, key := range strings.Split(tag, ",") {
 				key = strings.TrimLeft(key, " ")
@@ -289,23 +299,9 @@ func cmdFromStruct(name string, dest path, t reflect.Type) (*command, error) {
 						spec.env = strings.ToUpper(field.Name)
 					}
 				case key == "subcommand":
-					// decide on a name for the subcommand
-					cmdname := value
-					if cmdname == "" {
-						cmdname = strings.ToLower(field.Name)
+					if value != "" {
+						cmdname = value
 					}
-
-					// parse the subcommand recursively
-					subcmd, err := cmdFromStruct(cmdname, subdest, field.Type)
-					if err != nil {
-						errs = append(errs, err.Error())
-						return false
-					}
-
-					subcmd.parent = &cmd
-					subcmd.help = field.Tag.Get("help")
-
-					cmd.subcommands = append(cmd.subcommands, subcmd)
 					isSubcommand = true
 				default:
 					errs = append(errs, fmt.Sprintf("unrecognized tag '%s' on field %s", key, tag))
@@ -328,6 +324,18 @@ func cmdFromStruct(name string, dest path, t reflect.Type) (*command, error) {
 					t.Name(), field.Name, field.Type.String()))
 				return false
 			}
+		} else {
+			// parse the subcommand recursively
+			subcmd, err := cmdFromStruct(cmdname, subdest, field.Type)
+			if err != nil {
+				errs = append(errs, err.Error())
+				return false
+			}
+
+			subcmd.parent = &cmd
+			subcmd.help = field.Tag.Get("help")
+
+			cmd.subcommands = append(cmd.subcommands, subcmd)
 		}
 
 		// if this was an embedded field then we already returned true up above
@@ -458,7 +466,12 @@ func (p *Parser) process(args []string) error {
 
 			// instantiate the field to point to a new struct
 			v := p.val(subcmd.dest)
-			v.Set(reflect.New(v.Type().Elem())) // we already checked that all subcommands are struct pointers
+			ptr := reflect.New(v.Type().Elem())
+			v.Set(ptr) // we already checked that all subcommands are struct pointers
+
+			if isRunner(v.Type()) {
+				p.lastTree = append(p.lastTree, v.Interface())
+			}
 
 			// add the new options to the set of allowed options
 			specs = append(specs, subcmd.specs...)
@@ -675,6 +688,50 @@ func findSubcommand(cmds []*command, name string) *command {
 	for _, cmd := range cmds {
 		if cmd.name == name {
 			return cmd
+		}
+	}
+	return nil
+}
+
+func (p *Parser) Execute(ctx context.Context) error {
+	lastCmd := len(p.lastTree) - 1
+	pPostRunners := []PersistentPostRunner{}
+	for i, inf := range p.lastTree {
+		// PersistentPreRun
+		if rnr, ok := inf.(PersistentPreRunner); ok {
+			if err := rnr.PersistentPreRun(ctx); err != nil {
+				return err
+			}
+		}
+		if i == lastCmd {
+			// PreRun
+			if rnr, ok := inf.(PreRunner); ok {
+				if err := rnr.PreRun(ctx); err != nil {
+					return err
+				}
+			}
+			// Run
+			if rnr, ok := inf.(Runner); ok {
+				if err := rnr.Run(ctx); err != nil {
+					return err
+				}
+			}
+			// PostRun
+			if rnr, ok := inf.(PostRunner); ok {
+				if err := rnr.PostRun(ctx); err != nil {
+					return err
+				}
+			}
+		}
+		// PersistentPostRun pushed on a stack to run in a reverse order
+		if rnr, ok := inf.(PersistentPostRunner); ok {
+			pPostRunners = append([]PersistentPostRunner{rnr}, pPostRunners...)
+		}
+	}
+	// PersistentPostRun
+	for _, rnr := range pPostRunners {
+		if err := rnr.PersistentPostRun(ctx); err != nil {
+			return err
 		}
 	}
 	return nil

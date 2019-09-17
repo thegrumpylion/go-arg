@@ -1,5 +1,44 @@
 package arg
 
+import (
+	"context"
+	"reflect"
+)
+
+// Subcommand interfaces
+
+type Runner interface {
+	Run(ctx context.Context) error
+}
+
+type PreRunner interface {
+	PreRun(ctx context.Context) error
+}
+
+type PersistentPreRunner interface {
+	PersistentPreRun(ctx context.Context) error
+}
+
+type PostRunner interface {
+	PostRun(ctx context.Context) error
+}
+
+type PersistentPostRunner interface {
+	PersistentPostRun(ctx context.Context) error
+}
+
+var runnerType = reflect.TypeOf((*Runner)(nil)).Elem()
+var preRunnerType = reflect.TypeOf((*PreRunner)(nil)).Elem()
+var persistentPreRunnerType = reflect.TypeOf((*PersistentPreRunner)(nil)).Elem()
+var postRunnerType = reflect.TypeOf((*PostRunner)(nil)).Elem()
+var persistentPostRunnerType = reflect.TypeOf((*PersistentPostRunner)(nil)).Elem()
+
+func isRunner(t reflect.Type) bool {
+	return t.Implements(runnerType) || t.Implements(preRunnerType) ||
+		t.Implements(persistentPreRunnerType) || t.Implements(postRunnerType) ||
+		t.Implements(persistentPostRunnerType)
+}
+
 // Subcommand returns the user struct for the subcommand selected by
 // the command line arguments most recently processed by the parser.
 // The return value is always a pointer to a struct. If no subcommand
