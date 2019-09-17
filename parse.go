@@ -306,6 +306,9 @@ func cmdFromStruct(name string, dest path, t reflect.Type) (*command, error) {
 					if value != "" {
 						cmdname = value
 					}
+					if cmdname == "" {
+						cmdname = strings.ToLower(field.Name)
+					}
 					isSubcommand = true
 				default:
 					errs = append(errs, fmt.Sprintf("unrecognized tag '%s' on field %s", key, tag))
