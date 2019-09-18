@@ -116,6 +116,11 @@ func (p *Parser) WriteHelp(w io.Writer) {
 	p.writeHelpForCommand(w, p.cmd)
 }
 
+// WriteHelpForLastCmd writes the usage string for the last cmd followed by the full help string for each option
+func (p *Parser) WriteHelpForLastCmd(w io.Writer) {
+	p.writeHelpForCommand(w, p.lastCmd)
+}
+
 // writeHelp writes the usage string for the given subcommand
 func (p *Parser) writeHelpForCommand(w io.Writer, cmd *command) {
 	var positionals, options []*spec
