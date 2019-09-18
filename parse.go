@@ -69,6 +69,9 @@ type command struct {
 // ErrHelp indicates that -h or --help were provided
 var ErrHelp = errors.New("help requested by user")
 
+// ErrNestedHelp return by custom command implementations
+var ErrNestedHelp = errors.New("help requested by user from custom handler")
+
 // ErrVersion indicates that --version was provided
 var ErrVersion = errors.New("version requested by user")
 
@@ -370,19 +373,7 @@ func cmdFromStruct(name string, dest path, t reflect.Type) (*command, error) {
 // Parse processes the given command line option, storing the results in the field
 // of the structs from which NewParser was constructed
 func (p *Parser) Parse(args []string) error {
-	err := p.process(args)
-	if err != nil {
-		// If -h or --help were specified then make sure help text supercedes other errors
-		for _, arg := range args {
-			if arg == "-h" || arg == "--help" {
-				return ErrHelp
-			}
-			if arg == "--" {
-				break
-			}
-		}
-	}
-	return err
+	return p.process(args)
 }
 
 // process environment vars for the given arguments
